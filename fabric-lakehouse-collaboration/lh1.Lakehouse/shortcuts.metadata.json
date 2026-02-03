@@ -1,1 +1,14 @@
-[]
+[
+  {
+    "name": "customer",
+    "path": "/Tables/edw_stage",
+    "target": {
+      "type": "OneLake",
+      "oneLake": {
+        "path": "Tables/edw_stage/customer",
+        "itemId": "7c45310b-3130-480f-8527-00ccfcaf65ae",
+        "workspaceId": "ec6928bf-89f5-4edd-87de-6c773b597a6f"
+      }
+    }
+  }
+]
