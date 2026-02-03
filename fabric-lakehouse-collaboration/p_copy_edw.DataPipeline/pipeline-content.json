@@ -39,8 +39,8 @@
                 "properties": {
                   "type": "Lakehouse",
                   "typeProperties": {
-                    "artifactId": "b70fc836-021e-a6ff-4e1e-f0a64c9ba57b",
-                    "workspaceId": "00000000-0000-0000-0000-000000000000",
+                    "artifactId": "4c9ba57b-f0a6-4e1e-a6ff-021eb70fc836",
+                    "workspaceId": "50256700-cd75-43bf-ae56-1f0a129e7f0b",
                     "rootFolder": "Tables"
                   },
                   "externalReferences": {
