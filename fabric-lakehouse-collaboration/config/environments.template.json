@@ -1,0 +1,24 @@
+{
+  "$schema": "./environments.schema.json",
+  "_comment": "This is a template file. Actual values are populated from GitHub secrets at runtime.",
+  "environments": {
+    "main": {
+      "name": "dev",
+      "description": "Development environment (main branch)",
+      "workspaceId": "${DEV_WORKSPACE_ID}",
+      "lakehouses": {
+        "lh1": {
+          "lakehouseId": "${DEV_LAKEHOUSE_ID}",
+          "logicalId": "b70fc836-021e-a6ff-4e1e-f0a64c9ba57b"
+        }
+      }
+    }
+  },
+  "artifacts": {
+    "lh1": {
+      "type": "Lakehouse",
+      "logicalId": "b70fc836-021e-a6ff-4e1e-f0a64c9ba57b",
+      "displayName": "lh1"
+    }
+  }
+}
