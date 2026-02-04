@@ -6,23 +6,158 @@ on:
       - main
     paths:
       - 'fabric-lakehouse-collaboration/**'
+  
+  issue_comment:
+    types: [created]
 
 permissions:
-  contents: write   # Required to push changes back to PR branch
+  contents: write
   pull-requests: write
 
 jobs:
-  update-connections:
-    name: Update Lakehouse Connections
+  scan-and-notify:
+    name: Scan Notebooks
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+
+      - name: Get changed files
+        id: changed-files
+        run: |
+          CHANGED=$(git diff --name-only origin/${{ github.base_ref }}...HEAD | grep -E '\.Notebook/|\.DataPipeline/' || true)
+          echo "files<<EOF" >> $GITHUB_OUTPUT
+          echo "$CHANGED" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          echo "$CHANGED" > /tmp/changed_files.txt
+          if [ -n "$CHANGED" ]; then
+            echo "has_artifacts=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_artifacts=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Set up Python
+        if: steps.changed-files.outputs.has_artifacts == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Scan changed notebooks
+        if: steps.changed-files.outputs.has_artifacts == 'true'
+        id: scan
+        run: |
+          REPORT=$(python scripts/scan_notebooks.py --changed-files-file /tmp/changed_files.txt)
+          echo "report<<EOF" >> $GITHUB_OUTPUT
+          echo "$REPORT" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Post scan results
+        if: steps.changed-files.outputs.has_artifacts == 'true'
+        uses: actions/github-script@v7
+        env:
+          SCAN_REPORT: ${{ steps.scan.outputs.report }}
+        with:
+          script: |
+            const report = process.env.SCAN_REPORT;
+            
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number
+            });
+            
+            const botComment = comments.find(c => 
+              c.user.login === 'github-actions[bot]' && 
+              c.body.includes('Notebooks with Lakehouse Connections')
+            );
+            
+            const body = '## 🔍 Lakehouse Connection Scan\n\nThe following notebooks/pipelines in this PR have lakehouse connections that may need updating:\n\n' + report;
+            
+            if (botComment) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body: body
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: body
+              });
+            }
+
+  update-connections:
+    name: Update Lakehouse Connections
+    if: |
+      github.event_name == 'issue_comment' &&
+      github.event.issue.pull_request &&
+      startsWith(github.event.comment.body, '/update-lakehouse')
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Parse command arguments
+        id: parse
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const comment = context.payload.comment.body.trim();
+            const match = comment.match(/^\/update-lakehouse\s+([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\s+([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i);
+            
+            if (!match) {
+              core.setFailed('Invalid command format. Use: /update-lakehouse <workspace-id> <lakehouse-id>');
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: '❌ **Invalid command format**\n\nPlease use:\n```\n/update-lakehouse <workspace-id> <lakehouse-id>\n```\n\nBoth IDs must be valid GUIDs.'
+              });
+              return;
+            }
+            
+            core.setOutput('workspace_id', match[1]);
+            core.setOutput('lakehouse_id', match[2]);
+            
+            await github.rest.reactions.createForIssueComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: context.payload.comment.id,
+              content: 'rocket'
+            });
+
+      - name: Get PR details
+        id: pr-details
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number
+            });
+            core.setOutput('ref', pr.data.head.ref);
+            core.setOutput('base_ref', pr.data.base.ref);
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.pr-details.outputs.ref }}
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Get changed files
+        id: changed-files
+        run: |
+          git fetch origin ${{ steps.pr-details.outputs.base_ref }}
+          CHANGED=$(git diff --name-only origin/${{ steps.pr-details.outputs.base_ref }}...HEAD | grep -E '\.Notebook/|\.DataPipeline/' || true)
+          echo "files=$CHANGED" >> $GITHUB_OUTPUT
+          echo "$CHANGED" | tr '\n' ',' | sed 's/,$//' > /tmp/changed_files.csv
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -31,10 +166,10 @@ jobs:
 
       - name: Update Lakehouse Connections
         env:
-          TARGET_WORKSPACE_ID: ${{ secrets.DEV_WORKSPACE_ID }}
-          TARGET_LAKEHOUSE_ID: ${{ secrets.DEV_LAKEHOUSE_ID }}
+          TARGET_WORKSPACE_ID: ${{ steps.parse.outputs.workspace_id }}
+          TARGET_LAKEHOUSE_ID: ${{ steps.parse.outputs.lakehouse_id }}
         run: |
-          python scripts/update_lakehouse_connections.py
+          python scripts/update_lakehouse_connections.py --changed-files "$(cat /tmp/changed_files.csv)"
 
       - name: Check for changes
         id: check-changes
@@ -43,43 +178,72 @@ jobs:
             echo "has_changes=false" >> $GITHUB_OUTPUT
           else
             echo "has_changes=true" >> $GITHUB_OUTPUT
+            MODIFIED=$(git diff --name-only | head -10)
+            echo "modified_files<<EOF" >> $GITHUB_OUTPUT
+            echo "$MODIFIED" >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
           fi
 
       - name: Commit and push changes
         if: steps.check-changes.outputs.has_changes == 'true'
+        env:
+          WORKSPACE_ID: ${{ steps.parse.outputs.workspace_id }}
+          LAKEHOUSE_ID: ${{ steps.parse.outputs.lakehouse_id }}
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
           git add -A
-          git commit -m "chore: Update lakehouse connections for dev environment
+          git commit -m "chore: Update lakehouse connections
 
           Automatically updated by GitHub Actions workflow.
-          - Updated notebook lakehouse references
-          - Updated pipeline connection settings
+          Triggered by: @${{ github.event.comment.user.login }}
 
-          Target Workspace: ${{ secrets.DEV_WORKSPACE_ID }}
-          Target Lakehouse: ${{ secrets.DEV_LAKEHOUSE_ID }}"
+          Target Workspace: ${WORKSPACE_ID}
+          Target Lakehouse: ${LAKEHOUSE_ID}"
           git push
 
-      - name: Add PR comment
+      - name: Add success comment
         if: steps.check-changes.outputs.has_changes == 'true'
+        uses: actions/github-script@v7
+        env:
+          WORKSPACE_ID: ${{ steps.parse.outputs.workspace_id }}
+          LAKEHOUSE_ID: ${{ steps.parse.outputs.lakehouse_id }}
+          MODIFIED_FILES: ${{ steps.check-changes.outputs.modified_files }}
+        with:
+          script: |
+            const workspaceId = process.env.WORKSPACE_ID;
+            const lakehouseId = process.env.LAKEHOUSE_ID;
+            const modifiedFiles = process.env.MODIFIED_FILES || '';
+            const fileList = modifiedFiles.split('\n').filter(f => f).map(f => '- `' + f + '`').join('\n');
+            
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: '✅ **Lakehouse connections updated**\n\n| Setting | Value |\n|---------|-------|\n| Workspace ID | `' + workspaceId + '` |\n| Lakehouse ID | `' + lakehouseId + '` |\n\n**Updated files:**\n' + fileList + '\n\nPlease review the changes before merging.'
+            });
+            
+            await github.rest.reactions.createForIssueComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: context.payload.comment.id,
+              content: '+1'
+            });
+
+      - name: Add no-changes comment
+        if: steps.check-changes.outputs.has_changes == 'false'
+        env:
+          WORKSPACE_ID: ${{ steps.parse.outputs.workspace_id }}
+          LAKEHOUSE_ID: ${{ steps.parse.outputs.lakehouse_id }}
         uses: actions/github-script@v7
         with:
           script: |
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
+            const workspaceId = process.env.WORKSPACE_ID;
+            const lakehouseId = process.env.LAKEHOUSE_ID;
+            
+            await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: `✅ **Lakehouse connections updated**
-              
-              The following changes were made to align with the dev environment:
-              - Updated \`default_lakehouse\` and \`default_lakehouse_workspace_id\` in notebook files
-              - Updated \`artifactId\` and \`workspaceId\` in pipeline files
-              
-              Please review the updated connection settings before merging.`
-            })
-
-      - name: No changes needed
-        if: steps.check-changes.outputs.has_changes == 'false'
-        run: |
-          echo "✓ All lakehouse connections are already up to date"
+              issue_number: context.issue.number,
+              body: 'ℹ️ **No changes needed**\n\nAll lakehouse connections in the changed files already match the specified target:\n- Workspace ID: `' + workspaceId + '`\n- Lakehouse ID: `' + lakehouseId + '`'
+            });

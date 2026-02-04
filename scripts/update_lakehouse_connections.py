@@ -198,24 +198,34 @@ def update_pipeline_lakehouse(
     return content, False
 
 
-def find_notebooks(root_dir: Path) -> list[Path]:
+def find_notebooks(root_dir: Path, changed_files: list[str] | None = None) -> list[Path]:
     """Find all notebook-content.py files in Notebook folders."""
     notebooks = []
     for folder in root_dir.iterdir():
         if folder.is_dir() and folder.name.endswith('.Notebook'):
             notebook_file = folder / 'notebook-content.py'
             if notebook_file.exists():
+                # If changed_files is provided, only include if this notebook was changed
+                if changed_files is not None:
+                    folder_prefix = str(folder.relative_to(root_dir.parent))
+                    if not any(cf.startswith(folder_prefix) for cf in changed_files):
+                        continue
                 notebooks.append(notebook_file)
     return notebooks
 
 
-def find_pipelines(root_dir: Path) -> list[Path]:
+def find_pipelines(root_dir: Path, changed_files: list[str] | None = None) -> list[Path]:
     """Find all pipeline-content.json files in DataPipeline folders."""
     pipelines = []
     for folder in root_dir.iterdir():
         if folder.is_dir() and folder.name.endswith('.DataPipeline'):
             pipeline_file = folder / 'pipeline-content.json'
             if pipeline_file.exists():
+                # If changed_files is provided, only include if this pipeline was changed
+                if changed_files is not None:
+                    folder_prefix = str(folder.relative_to(root_dir.parent))
+                    if not any(cf.startswith(folder_prefix) for cf in changed_files):
+                        continue
                 pipelines.append(pipeline_file)
     return pipelines
 
@@ -244,6 +254,18 @@ def main():
         action='store_true',
         help='Show what would be changed without making changes'
     )
+    parser.add_argument(
+        '--changed-files',
+        type=str,
+        default=os.environ.get('CHANGED_FILES'),
+        help='Comma-separated list of changed files (filters to only update these)'
+    )
+    parser.add_argument(
+        '--changed-files-file',
+        type=str,
+        default=None,
+        help='File containing list of changed files (one per line)'
+    )
     
     args = parser.parse_args()
     
@@ -266,6 +288,19 @@ def main():
         print(f"Error: Root directory not found: {root_dir}")
         sys.exit(1)
     
+    # Parse changed files if provided
+    changed_files = None
+    if args.changed_files:
+        changed_files = [f.strip() for f in args.changed_files.split(',') if f.strip()]
+        print(f"Filtering to {len(changed_files)} changed file(s)")
+    elif args.changed_files_file:
+        try:
+            with open(args.changed_files_file, 'r') as f:
+                changed_files = [line.strip() for line in f if line.strip()]
+            print(f"Filtering to {len(changed_files)} changed file(s) from {args.changed_files_file}")
+        except FileNotFoundError:
+            print(f"Warning: Changed files file not found: {args.changed_files_file}")
+    
     print(f"Target Workspace ID: {args.workspace_id}")
     print(f"Target Lakehouse ID: {args.lakehouse_id}")
     print(f"Root Directory: {root_dir.absolute()}")
@@ -275,7 +310,7 @@ def main():
     total_modified = 0
     
     # Process notebooks
-    notebooks = find_notebooks(root_dir)
+    notebooks = find_notebooks(root_dir, changed_files)
     print(f"Found {len(notebooks)} notebook(s)")
     
     for notebook_path in notebooks:
@@ -294,7 +329,7 @@ def main():
                 print(f"  Would update (dry-run)")
     
     # Process pipelines
-    pipelines = find_pipelines(root_dir)
+    pipelines = find_pipelines(root_dir, changed_files)
     print(f"\nFound {len(pipelines)} pipeline(s)")
     
     for pipeline_path in pipelines:
