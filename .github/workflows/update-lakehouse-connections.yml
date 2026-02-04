@@ -156,7 +156,9 @@ jobs:
         run: |
           git fetch origin ${{ steps.pr-details.outputs.base_ref }}
           CHANGED=$(git diff --name-only origin/${{ steps.pr-details.outputs.base_ref }}...HEAD | grep -E '\.Notebook/|\.DataPipeline/' || true)
-          echo "files=$CHANGED" >> $GITHUB_OUTPUT
+          echo "files<<EOF" >> $GITHUB_OUTPUT
+          echo "$CHANGED" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
           echo "$CHANGED" | tr '\n' ',' | sed 's/,$//' > /tmp/changed_files.csv
 
       - name: Set up Python
