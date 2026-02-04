@@ -4,13 +4,20 @@ on:
   workflow_dispatch:
     inputs:
       workspace_id:
-        description: 'Target workspace ID (GUID) for prod environment'
-        required: true
+        description: 'Target workspace ID (GUID) - leave empty for initial deployment'
+        required: false
         type: string
+        default: ''
       lakehouse_id:
-        description: 'Target lakehouse ID (GUID) for prod environment'
-        required: true
+        description: 'Target lakehouse ID (GUID) - leave empty for initial deployment'
+        required: false
         type: string
+        default: ''
+      skip_lakehouse_update:
+        description: 'Skip lakehouse update (for initial deployment before prod lakehouse exists)'
+        required: false
+        type: boolean
+        default: false
       dry_run:
         description: 'Dry run (preview changes without applying)'
         required: false
@@ -77,8 +84,17 @@ jobs:
         run: |
           python scripts/sync_to_prod.py --manifest config/release-manifest.json ${{ inputs.dry_run == true && '--dry-run' || '' }}
 
+      - name: Validate lakehouse parameters
+        if: inputs.dry_run == false && inputs.skip_lakehouse_update == false
+        run: |
+          if [ -z "${{ inputs.workspace_id }}" ] || [ -z "${{ inputs.lakehouse_id }}" ]; then
+            echo "::error::Workspace ID and Lakehouse ID are required unless 'skip_lakehouse_update' is enabled."
+            echo "For initial deployments, enable 'skip_lakehouse_update' to deploy without updating lakehouse connections."
+            exit 1
+          fi
+
       - name: Update lakehouse connections for prod
-        if: inputs.dry_run == false && steps.sync.outputs.has_changes == 'true'
+        if: inputs.dry_run == false && inputs.skip_lakehouse_update == false && steps.sync.outputs.has_changes == 'true'
         env:
           TARGET_WORKSPACE_ID: ${{ inputs.workspace_id }}
           TARGET_LAKEHOUSE_ID: ${{ inputs.lakehouse_id }}
@@ -99,13 +115,22 @@ jobs:
           git checkout prod
           git checkout -b "$BRANCH_NAME"
           
-          # Apply the synced files from main (already updated with prod lakehouse IDs)
+          # Apply the synced files from main (already updated with prod lakehouse IDs if not skipped)
           git checkout main -- $(cat /tmp/files_to_sync.txt)
           
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
           git add -A
-          git commit -m "chore: Release from main to prod
+          
+          if [ "${{ inputs.skip_lakehouse_update }}" == "true" ]; then
+            git commit -m "chore: Initial release from main to prod
+
+          Synced items based on release-manifest.json
+          Lakehouse update skipped (initial deployment)
+          
+          Triggered by: @${{ github.actor }}"
+          else
+            git commit -m "chore: Release from main to prod
 
           Synced items based on release-manifest.json
           Updated lakehouse connections for prod environment
@@ -113,6 +138,7 @@ jobs:
           - Lakehouse: ${{ inputs.lakehouse_id }}
           
           Triggered by: @${{ github.actor }}"
+          fi
           git push origin "$BRANCH_NAME"
 
       - name: Create Pull Request
@@ -123,13 +149,25 @@ jobs:
             const branch = '${{ steps.release-branch.outputs.branch }}';
             const workspaceId = '${{ inputs.workspace_id }}';
             const lakehouseId = '${{ inputs.lakehouse_id }}';
+            const skipUpdate = '${{ inputs.skip_lakehouse_update }}' === 'true';
+            
+            let body = '## Release to Production\n\nThis PR syncs selected items from `main` to `prod` based on the release manifest.\n\n';
+            
+            if (skipUpdate) {
+              body += '### ⚠️ Initial Deployment\nLakehouse update was skipped. After merging:\n1. Sync prod branch to your Fabric workspace\n2. Get the workspace and lakehouse GUIDs\n3. Run Release to Prod workflow again with the GUIDs\n\n';
+            } else {
+              body += `### Lakehouse Configuration\n| Setting | Value |\n|---------|-------|\n| Workspace ID | \`${workspaceId}\` |\n| Lakehouse ID | \`${lakehouseId}\` |\n\n`;
+            }
+            
+            body += `### Changed Files\n\`\`\`\n${{ steps.sync.outputs.changed_files }}\n\`\`\`\n\n### Triggered by\n@${{ github.actor }}\n\n---\n_Review the changes carefully before merging._`;
+            
             const { data: pr } = await github.rest.pulls.create({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              title: '🚀 Release to Production',
+              title: skipUpdate ? '🚀 Initial Release to Production' : '🚀 Release to Production',
               head: branch,
               base: 'prod',
-              body: `## Release to Production\n\nThis PR syncs selected items from \`main\` to \`prod\` based on the release manifest.\n\n### Lakehouse Configuration\n| Setting | Value |\n|---------|-------|\n| Workspace ID | \`${workspaceId}\` |\n| Lakehouse ID | \`${lakehouseId}\` |\n\n### Changed Files\n\`\`\`\n${{ steps.sync.outputs.changed_files }}\n\`\`\`\n\n### Triggered by\n@${{ github.actor }}\n\n---\n_Review the changes carefully before merging._`
+              body: body
             });
             
             console.log(`Created PR #${pr.number}: ${pr.html_url}`);
@@ -143,7 +181,16 @@ jobs:
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
           git add -A
-          git commit -m "chore: Release from main to prod
+          
+          if [ "${{ inputs.skip_lakehouse_update }}" == "true" ]; then
+            git commit -m "chore: Initial release from main to prod
+
+          Synced items based on release-manifest.json
+          Lakehouse update skipped (initial deployment)
+          
+          Triggered by: @${{ github.actor }}"
+          else
+            git commit -m "chore: Release from main to prod
 
           Synced items based on release-manifest.json
           Updated lakehouse connections for prod environment
@@ -151,6 +198,7 @@ jobs:
           - Lakehouse: ${{ inputs.lakehouse_id }}
           
           Triggered by: @${{ github.actor }}"
+          fi
           git push origin prod
 
       - name: Summary
@@ -162,9 +210,18 @@ jobs:
           elif [ "${{ steps.sync.outputs.has_changes }}" == "true" ]; then
             echo "✅ **Release completed successfully**" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
-            echo "**Lakehouse Configuration:**" >> $GITHUB_STEP_SUMMARY
-            echo "- Workspace ID: \`${{ inputs.workspace_id }}\`" >> $GITHUB_STEP_SUMMARY
-            echo "- Lakehouse ID: \`${{ inputs.lakehouse_id }}\`" >> $GITHUB_STEP_SUMMARY
+            if [ "${{ inputs.skip_lakehouse_update }}" == "true" ]; then
+              echo "⚠️ **Initial Deployment** - Lakehouse update was skipped" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "Next steps:" >> $GITHUB_STEP_SUMMARY
+              echo "1. Sync the prod branch to your Fabric workspace" >> $GITHUB_STEP_SUMMARY
+              echo "2. Get the workspace and lakehouse GUIDs from Fabric" >> $GITHUB_STEP_SUMMARY
+              echo "3. Run this workflow again with the GUIDs to update lakehouse connections" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "**Lakehouse Configuration:**" >> $GITHUB_STEP_SUMMARY
+              echo "- Workspace ID: \`${{ inputs.workspace_id }}\`" >> $GITHUB_STEP_SUMMARY
+              echo "- Lakehouse ID: \`${{ inputs.lakehouse_id }}\`" >> $GITHUB_STEP_SUMMARY
+            fi
           else
             echo "ℹ️ **No changes to sync** - prod is up to date" >> $GITHUB_STEP_SUMMARY
           fi
