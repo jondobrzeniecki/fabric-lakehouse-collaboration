@@ -13,13 +13,18 @@
       "comment": "Bank churn prediction notebook"
     },
     {
+      "path": "fabric-lakehouse-collaboration/AIsample - Bank Customer Churn - Score.Notebook",
+      "include": true,
+      "comment": "Bank churn prediction notebook - scoring version"
+    },
+    {
       "path": "fabric-lakehouse-collaboration/Notebook 1.Notebook",
       "include": false,
       "comment": "Development/testing notebook - not for prod"
     },
     {
       "path": "fabric-lakehouse-collaboration/p_copy_edw.DataPipeline",
-      "include": true,
+      "include": false,
       "comment": "EDW copy pipeline"
     },
     {
@@ -29,7 +34,7 @@
     },
     {
       "path": "fabric-lakehouse-collaboration/rfc2_sm.MLModel",
-      "include": true,
+      "include": false,
       "comment": "Random forest model v2"
     },
     {
