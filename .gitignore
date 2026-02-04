@@ -1,0 +1,42 @@
+# Sensitive configuration - NEVER commit credentials
+*.env
+.env.*
+.env
+secrets/
+*.secret
+*.pem
+*.key
+
+# Local development
+.vscode/settings.json
+*.local.json
+local.settings.json
+
+# Azure/Fabric credentials
+azure.json
+fabric-credentials.json
+serviceprincipal.json
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+.venv/
+ENV/
+
+# Build artifacts
+dist/
+build/
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+*.swp
+*.swo

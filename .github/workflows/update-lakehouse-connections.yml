@@ -1,0 +1,85 @@
+name: Update Lakehouse Connections
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'fabric-lakehouse-collaboration/**'
+
+permissions:
+  contents: write   # Required to push changes back to PR branch
+  pull-requests: write
+
+jobs:
+  update-connections:
+    name: Update Lakehouse Connections
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Update Lakehouse Connections
+        env:
+          TARGET_WORKSPACE_ID: ${{ secrets.DEV_WORKSPACE_ID }}
+          TARGET_LAKEHOUSE_ID: ${{ secrets.DEV_LAKEHOUSE_ID }}
+        run: |
+          python scripts/update_lakehouse_connections.py
+
+      - name: Check for changes
+        id: check-changes
+        run: |
+          if git diff --quiet; then
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+          else
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Commit and push changes
+        if: steps.check-changes.outputs.has_changes == 'true'
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add -A
+          git commit -m "chore: Update lakehouse connections for dev environment
+
+          Automatically updated by GitHub Actions workflow.
+          - Updated notebook lakehouse references
+          - Updated pipeline connection settings
+
+          Target Workspace: ${{ secrets.DEV_WORKSPACE_ID }}
+          Target Lakehouse: ${{ secrets.DEV_LAKEHOUSE_ID }}"
+          git push
+
+      - name: Add PR comment
+        if: steps.check-changes.outputs.has_changes == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `✅ **Lakehouse connections updated**
+              
+              The following changes were made to align with the dev environment:
+              - Updated \`default_lakehouse\` and \`default_lakehouse_workspace_id\` in notebook files
+              - Updated \`artifactId\` and \`workspaceId\` in pipeline files
+              
+              Please review the updated connection settings before merging.`
+            })
+
+      - name: No changes needed
+        if: steps.check-changes.outputs.has_changes == 'false'
+        run: |
+          echo "✓ All lakehouse connections are already up to date"
