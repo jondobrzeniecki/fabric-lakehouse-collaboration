@@ -4,29 +4,48 @@ This repository contains Microsoft Fabric workspace artifacts with automated CI/
 
 ## Overview
 
-When working with Fabric Git integration, notebooks and pipelines contain environment-specific GUIDs for lakehouse connections. This repository includes a GitHub Actions workflow that automatically updates these connections when creating pull requests.
+When working with Fabric Git integration, notebooks and pipelines contain environment-specific GUIDs for lakehouse connections. This repository includes a GitHub Actions workflow that helps you update these connections when creating pull requests.
 
 ## CI/CD Pipeline
 
 ### How It Works
 
-When you create a pull request to `main` (dev environment), the workflow:
+The workflow operates in two phases:
 
-1. **Validates** the target lakehouse exists using the Fabric REST API
-2. **Updates** lakehouse connection GUIDs in:
-   - `notebook-content.py` files (META block with `default_lakehouse`, `default_lakehouse_workspace_id`)
-   - `pipeline-content.json` files (`artifactId`, `workspaceId` in connection settings)
-3. **Commits** the changes back to your PR branch
-4. **Comments** on the PR with a summary of changes
+**Phase 1: Scan (Automatic)**
 
-### Required GitHub Secrets
+When you create or update a pull request that modifies notebooks or pipelines:
 
-Configure these secrets in your repository settings (**Settings → Secrets and variables → Actions**):
+1. The workflow scans **only the changed files** in your PR
+2. It posts a comment listing all notebooks/pipelines with their current lakehouse connections
+3. It provides instructions for updating the connections
 
-| Secret | Description | How to Obtain |
-|--------|-------------|---------------|
-| `DEV_WORKSPACE_ID` | Target Fabric workspace GUID | Fabric Portal → Workspace Settings → URL contains the ID |
-| `DEV_LAKEHOUSE_ID` | Target lakehouse GUID | Fabric Portal → Lakehouse → URL contains the ID |
+**Phase 2: Update (User-Triggered)**
+
+To update the lakehouse connections, comment on the PR with:
+
+```
+/update-lakehouse <workspace-id> <lakehouse-id>
+```
+
+**Example:**
+```
+/update-lakehouse 50256700-cd75-43bf-ae56-1f0a129e7f0b 4c9ba57b-f0a6-4e1e-a6ff-021eb70fc836
+```
+
+The workflow will then:
+1. Update only the notebooks/pipelines that were changed in the PR
+2. Replace `default_lakehouse` and `default_lakehouse_workspace_id` in notebook META blocks
+3. Replace `artifactId` and `workspaceId` in pipeline connection settings
+4. Commit and push the changes to your PR branch
+5. Post a confirmation comment with the list of updated files
+
+### Finding Your Workspace and Lakehouse IDs
+
+You can find these GUIDs in the Fabric portal URLs:
+
+- **Workspace ID**: Go to your workspace, the URL contains `.../groups/<workspace-id>/...`
+- **Lakehouse ID**: Open your lakehouse, the URL contains `.../lakehouses/<lakehouse-id>...`
 
 ### Running Locally
 
@@ -42,6 +61,9 @@ python scripts/update_lakehouse_connections.py --dry-run
 
 # Apply changes
 python scripts/update_lakehouse_connections.py
+
+# Update only specific files
+python scripts/update_lakehouse_connections.py --changed-files "fabric-lakehouse-collaboration/MyNotebook.Notebook/notebook-content.py"
 ```
 
 ## Repository Structure
