@@ -116,7 +116,12 @@ jobs:
           git checkout -b "$BRANCH_NAME"
           
           # Apply the synced files from main (already updated with prod lakehouse IDs if not skipped)
-          git checkout main -- $(cat /tmp/files_to_sync.txt)
+          # Use while loop to handle file paths with spaces
+          while IFS= read -r file; do
+            if [ -n "$file" ]; then
+              git checkout main -- "$file"
+            fi
+          done < /tmp/files_to_sync.txt
           
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
@@ -176,7 +181,12 @@ jobs:
         if: inputs.dry_run == false && inputs.create_pr == false && steps.sync.outputs.has_changes == 'true'
         run: |
           git checkout prod
-          git checkout main -- $(cat /tmp/files_to_sync.txt)
+          # Use while loop to handle file paths with spaces
+          while IFS= read -r file; do
+            if [ -n "$file" ]; then
+              git checkout main -- "$file"
+            fi
+          done < /tmp/files_to_sync.txt
           
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
