@@ -1,0 +1,175 @@
+name: Release to Prod
+
+on:
+  workflow_dispatch:
+    inputs:
+      workspace_id:
+        description: 'Target workspace ID (GUID) for prod environment'
+        required: true
+        type: string
+      lakehouse_id:
+        description: 'Target lakehouse ID (GUID) for prod environment'
+        required: true
+        type: string
+      dry_run:
+        description: 'Dry run (preview changes without applying)'
+        required: false
+        type: boolean
+        default: true
+      create_pr:
+        description: 'Create a PR instead of direct push'
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release:
+    name: Sync Selected Items to Prod
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout main branch
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Check if prod branch exists
+        id: check-prod
+        run: |
+          if git ls-remote --heads origin prod | grep -q prod; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create prod branch if it doesn't exist
+        if: steps.check-prod.outputs.exists == 'false'
+        run: |
+          git checkout --orphan prod
+          git rm -rf .
+          echo "# Production Branch" > README.md
+          echo "" >> README.md
+          echo "This branch contains production-ready Fabric items synced from main." >> README.md
+          echo "" >> README.md
+          echo "**Do not commit directly to this branch.** Use the Release to Prod workflow." >> README.md
+          git add README.md
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git commit -m "Initialize prod branch"
+          git push origin prod
+          git checkout main
+
+      - name: Sync items to prod
+        id: sync
+        env:
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          python scripts/sync_to_prod.py --manifest config/release-manifest.json ${{ inputs.dry_run == true && '--dry-run' || '' }}
+
+      - name: Update lakehouse connections for prod
+        if: inputs.dry_run == false && steps.sync.outputs.has_changes == 'true'
+        env:
+          TARGET_WORKSPACE_ID: ${{ inputs.workspace_id }}
+          TARGET_LAKEHOUSE_ID: ${{ inputs.lakehouse_id }}
+        run: |
+          # Get list of notebook files to update
+          NOTEBOOK_FILES=$(cat /tmp/files_to_sync.txt | grep -E '\.Notebook/' || true)
+          if [ -n "$NOTEBOOK_FILES" ]; then
+            python scripts/update_lakehouse_connections.py --changed-files "$(echo "$NOTEBOOK_FILES" | tr '\n' ',')"
+          fi
+
+      - name: Create release branch
+        if: inputs.dry_run == false && inputs.create_pr == true && steps.sync.outputs.has_changes == 'true'
+        id: release-branch
+        run: |
+          BRANCH_NAME="release/prod-$(date +%Y%m%d-%H%M%S)"
+          echo "branch=$BRANCH_NAME" >> $GITHUB_OUTPUT
+          
+          git checkout prod
+          git checkout -b "$BRANCH_NAME"
+          
+          # Apply the synced files from main (already updated with prod lakehouse IDs)
+          git checkout main -- $(cat /tmp/files_to_sync.txt)
+          
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add -A
+          git commit -m "chore: Release from main to prod
+
+          Synced items based on release-manifest.json
+          Updated lakehouse connections for prod environment
+          - Workspace: ${{ inputs.workspace_id }}
+          - Lakehouse: ${{ inputs.lakehouse_id }}
+          
+          Triggered by: @${{ github.actor }}"
+          git push origin "$BRANCH_NAME"
+
+      - name: Create Pull Request
+        if: inputs.dry_run == false && inputs.create_pr == true && steps.sync.outputs.has_changes == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const branch = '${{ steps.release-branch.outputs.branch }}';
+            const workspaceId = '${{ inputs.workspace_id }}';
+            const lakehouseId = '${{ inputs.lakehouse_id }}';
+            const { data: pr } = await github.rest.pulls.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: '🚀 Release to Production',
+              head: branch,
+              base: 'prod',
+              body: `## Release to Production\n\nThis PR syncs selected items from \`main\` to \`prod\` based on the release manifest.\n\n### Lakehouse Configuration\n| Setting | Value |\n|---------|-------|\n| Workspace ID | \`${workspaceId}\` |\n| Lakehouse ID | \`${lakehouseId}\` |\n\n### Changed Files\n\`\`\`\n${{ steps.sync.outputs.changed_files }}\n\`\`\`\n\n### Triggered by\n@${{ github.actor }}\n\n---\n_Review the changes carefully before merging._`
+            });
+            
+            console.log(`Created PR #${pr.number}: ${pr.html_url}`);
+
+      - name: Direct push to prod
+        if: inputs.dry_run == false && inputs.create_pr == false && steps.sync.outputs.has_changes == 'true'
+        run: |
+          git checkout prod
+          git checkout main -- $(cat /tmp/files_to_sync.txt)
+          
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add -A
+          git commit -m "chore: Release from main to prod
+
+          Synced items based on release-manifest.json
+          Updated lakehouse connections for prod environment
+          - Workspace: ${{ inputs.workspace_id }}
+          - Lakehouse: ${{ inputs.lakehouse_id }}
+          
+          Triggered by: @${{ github.actor }}"
+          git push origin prod
+
+      - name: Summary
+        run: |
+          echo "## Release Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ inputs.dry_run }}" == "true" ]; then
+            echo "🔍 **Dry Run** - No changes were applied" >> $GITHUB_STEP_SUMMARY
+          elif [ "${{ steps.sync.outputs.has_changes }}" == "true" ]; then
+            echo "✅ **Release completed successfully**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Lakehouse Configuration:**" >> $GITHUB_STEP_SUMMARY
+            echo "- Workspace ID: \`${{ inputs.workspace_id }}\`" >> $GITHUB_STEP_SUMMARY
+            echo "- Lakehouse ID: \`${{ inputs.lakehouse_id }}\`" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "ℹ️ **No changes to sync** - prod is up to date" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Files in manifest" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          cat /tmp/sync_summary.txt >> $GITHUB_STEP_SUMMARY 2>/dev/null || echo "No summary available"
+          echo '```' >> $GITHUB_STEP_SUMMARY

@@ -1,0 +1,49 @@
+{
+  "$schema": "./release-manifest.schema.json",
+  "description": "Defines which Fabric items are promoted from main (dev) to prod branch",
+  "items": [
+    {
+      "path": "fabric-lakehouse-collaboration/lh1.Lakehouse",
+      "include": true,
+      "comment": "Core lakehouse definition"
+    },
+    {
+      "path": "fabric-lakehouse-collaboration/AIsample - Bank Customer Churn.Notebook",
+      "include": true,
+      "comment": "Bank churn prediction notebook"
+    },
+    {
+      "path": "fabric-lakehouse-collaboration/Notebook 1.Notebook",
+      "include": false,
+      "comment": "Development/testing notebook - not for prod"
+    },
+    {
+      "path": "fabric-lakehouse-collaboration/p_copy_edw.DataPipeline",
+      "include": true,
+      "comment": "EDW copy pipeline"
+    },
+    {
+      "path": "fabric-lakehouse-collaboration/rfc1_sm.MLModel",
+      "include": true,
+      "comment": "Random forest model v1"
+    },
+    {
+      "path": "fabric-lakehouse-collaboration/rfc2_sm.MLModel",
+      "include": true,
+      "comment": "Random forest model v2"
+    },
+    {
+      "path": "fabric-lakehouse-collaboration/sample-bank-churn-experiment.MLExperiment",
+      "include": true,
+      "comment": "ML experiment tracking"
+    }
+  ],
+  "alwaysInclude": [
+    "fabric-lakehouse-collaboration/config/environments.template.json"
+  ],
+  "neverInclude": [
+    "scripts/",
+    ".github/",
+    "*.md"
+  ]
+}
