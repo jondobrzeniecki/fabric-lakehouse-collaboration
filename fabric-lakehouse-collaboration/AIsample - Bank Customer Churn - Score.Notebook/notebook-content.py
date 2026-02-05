@@ -25,6 +25,17 @@
 # # Create, evaluate, and score a churn prediction model
 # Updated: Test workflow trigger
 
+# CELL ********************
+
+print('hi')
+
+# METADATA ********************
+
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
 # MARKDOWN ********************
 
 # For this notebook, you'll install the `imblearn` using `%pip install`. Note that the PySpark kernel will be restarted after `%pip install`, thus you'll need to install the library before you run any other cells.
