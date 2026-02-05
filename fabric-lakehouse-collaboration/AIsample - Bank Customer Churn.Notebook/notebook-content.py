@@ -25,6 +25,17 @@
 # # Create, evaluate, and score a churn prediction model
 # Updated: Test workflow trigger
 
+# CELL ********************
+
+print('hi')
+
+# METADATA ********************
+
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
 # MARKDOWN ********************
 
 # ## Introduction
