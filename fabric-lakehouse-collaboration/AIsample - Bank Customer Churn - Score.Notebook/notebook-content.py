@@ -8,12 +8,12 @@
 # META   },
 # META   "dependencies": {
 # META     "lakehouse": {
-# META       "default_lakehouse": "1e4ba01b-e0c9-4697-bf28-2669bdf63d6b",
+# META       "default_lakehouse": "4c9ba57b-f0a6-4e1e-a6ff-021eb70fc836",
 # META       "default_lakehouse_name": "lh1",
-# META       "default_lakehouse_workspace_id": "60a1fe4d-1c7c-41bc-9e75-88ecc964a1bd",
+# META       "default_lakehouse_workspace_id": "50256700-cd75-43bf-ae56-1f0a129e7f0b",
 # META       "known_lakehouses": [
 # META         {
-# META           "id": "1e4ba01b-e0c9-4697-bf28-2669bdf63d6b"
+# META           "id": "4c9ba57b-f0a6-4e1e-a6ff-021eb70fc836"
 # META         }
 # META       ]
 # META     }
@@ -24,6 +24,17 @@
 
 # # Create, evaluate, and score a churn prediction model
 # Updated: Test workflow trigger
+
+# CELL ********************
+
+print('hi')
+
+# METADATA ********************
+
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
 
 # MARKDOWN ********************
 
